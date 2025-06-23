@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+# ───────────────────────────── Oracle Database XE (21c) ───────────────────────
+  oracle-db:
+    image: gvenzl/oracle-xe:21-slim-faststart        # multi-arch, <10 s cold start
+    container_name: oracle-db
+    restart: unless-stopped
+    shm_size: 2g                 # Oracle needs >1 GiB shared memory
+    ports:
+      - "1521:1521"              # SQL*Net / JDBC
+      - "5500:5500"              # Enterprise Manager Express
+    environment:
+      ORACLE_PASSWORD: "ChangeMe_123"  # SYS, SYSTEM, PDBADMIN
+      ORACLE_DATABASE: "ORCLCDB"       # CDB name (default XE)
+      ORACLE_PDB: "ORCLPDB1"           # Pluggable DB name
+      ORACLE_CHARACTERSET: "AL32UTF8"
+      ENABLE_ARCHIVELOG: "false"
+    volumes:
+      # ⇣ These paths match the gvenzl entry-point conventions
+      - db_data:/opt/oracle/oradata
+      - ./db/scripts/setup:/container-entrypoint-initdb.d
+      - ./db/scripts/startup:/container-entrypoint-startdb.d
+    healthcheck:
+      test: >
+        CMD-SHELL echo 'select 1 from dual;' | sqlplus -s system/$${ORACLE_PASSWORD}@localhost:1521/$${ORACLE_PDB} || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    networks:
+      - oracle-network
+
+# ──────────────────────────────── OmniDB UI ───────────────────────────────────
+  omnidb:
+    image: omnidbteam/omnidb:latest          # browser SQL & admin UI
+    container_name: omnidb
+    restart: unless-stopped
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"                          # http://localhost:8080
+    networks:
+      - oracle-network
+    # no extra env-vars needed; configure the Oracle connection via the web UI
+
+# ──────────────────────────────────────────────────────────────────────────────
+volumes:
+  db_data:
+
+networks:
+  oracle-network:
+    driver: bridge
